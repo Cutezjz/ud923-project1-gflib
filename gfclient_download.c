@@ -73,8 +73,8 @@ static FILE* openFile(char *path){
 /* Callbacks ========================================================= */
 static void writecb(void* data, size_t data_len, void *arg){
   FILE *file = (FILE*) arg;
-
-  fwrite(data, 1, data_len, file);
+  puts("this is the write cb");
+  //fwrite(data, 1, data_len, file);
 }
 
 /* Main ========================================================= */

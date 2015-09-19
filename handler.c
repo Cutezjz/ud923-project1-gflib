@@ -20,7 +20,6 @@ ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg){
 		return gfs_sendheader(ctx, GF_FILE_NOT_FOUND, 0);
 
 	/* Calculating the file size */
-	file_len = lseek(fildes, 0, SEEK_END);
 
 	gfs_sendheader(ctx, GF_OK, file_len);
 
