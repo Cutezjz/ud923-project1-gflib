@@ -24,6 +24,13 @@ typedef struct gfcrequest_t{
 	size_t bytesreceived;
 }gfcrequest_t;
 
+struct student
+{
+   char name[20];
+   int roll;
+   float marks;
+};
+
 gfcrequest_t *gfc_create(){
 	/*
 	 * This function must be the first one called as part of
@@ -31,8 +38,8 @@ gfcrequest_t *gfc_create(){
 	 * passed into all subsequent library calls pertaining to
 	 * this requeest.
 	 */
-	gfcrequest_t *gfr;
-
+	gfcrequest_t *gfr = (gfcrequest_t *)malloc(sizeof(*gfr));
+	memset(gfr, 0, sizeof *gfr);
 	return gfr;
 }
 
@@ -67,7 +74,10 @@ void gfc_set_port(gfcrequest_t *gfr, unsigned short port){
 	/*
 	 * Sets the port over which the request will be made.
 	 */
-	gfr->port = port;
+	if (gfr == NULL){
+		perror("GFR was NULL in set port\n");
+	}
+	gfr->port =  port;
 }
 
 void gfc_set_headerfunc(gfcrequest_t *gfr, void (*headerfunc)(void*, size_t, void *)){
@@ -81,7 +91,7 @@ void gfc_set_headerfunc(gfcrequest_t *gfr, void (*headerfunc)(void*, size_t, voi
 	 * You may assume that the callback will only be called once and will
 	 * contain the full header.
 	 */
-	 gfr->headerfunc = headerfunc;
+	 //gfr->headerfunc = headerfunc;
 
 }
 
@@ -89,7 +99,7 @@ void gfc_set_headerarg(gfcrequest_t *gfr, void *headerarg){
 	/*
 	 * Sets the third argument for all calls to the registered header callback.
 	 */
-	gfr->headerarg = headerarg;
+	//gfr->headerarg = headerarg;
 }
 
 void gfc_set_writefunc(gfcrequest_t *gfr, void (*writefunc)(void*, size_t, void *)){
@@ -129,19 +139,31 @@ int gfc_perform(gfcrequest_t *gfr){
 	int n_conn;
 	int bytes_read;
 	int bytes_written;
+	int status;
 	struct sockaddr_in serv_addr;
 	struct hostent *server;
 	const char *hostname = "localhost";
 	char request_str[300];
-	//char *request_str = malloc(sizeof("GETFILE ")+sizeof("GET ") + sizeof(gfr->path));
-	sprintf(request_str, "GETFILE GET %s", gfr->path);
-	//Create server from gfr
+	struct addrinfo hints;
+	struct addrinfo *servinfo;
+
 	printf("This is the server: %s\n", gfr->server);
-	puts("stewy\n");
-	//server = gethostbyname(gfr->server);
-
-
-    server = gethostbyname(hostname);
+	printf("This is the path: %s\n", gfr->path);
+	printf("This is the port: %d\n", gfr->port);
+    //
+	//memset(str, 0, sizeof str);
+	//sprintf(str, "%d", gfr->port);
+	//printf("This is the port (Str): %s\n", str);
+	puts("stewy");
+	//server = gethostbyname("localhost");
+	server = gethostbyname(gfr->server);
+	//status = getaddrinfo(gfr->server, gfr->port, &hints, &servinfo);
+	//status = getaddrinfo("localhost", "8888", &hints, &servinfo);
+	char *err_ms = "fucked up getaddrinfo";
+	if (status < 0){
+		perror(err_ms);
+	}
+    //server = gethostbyname(hostname);
 	/*
 	if(server == NULL){
 		perror("Error: No such host\n");
@@ -196,6 +218,7 @@ int gfc_perform(gfcrequest_t *gfr){
     */
 	//gfr->writefunc((void *)&sockfd, sizeof(&sockfd), gfr->writearg);
 	//puts(str);
+	puts("finish perform");
 	return 0;
 }
 
@@ -256,9 +279,9 @@ void gfc_cleanup(gfcrequest_t *gfr){
 	/*
 	 * Frees memory associated with the request.
 	 */
-	free(gfr->server);
-	free(gfr->path);
-	free(gfr);
+	//free(gfr->server);
+	//free(gfr->path);
+	//free(gfr);
 }
 
 void gfc_global_init(){
