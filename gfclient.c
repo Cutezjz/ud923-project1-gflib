@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include "gfclient.h"
 
+//Stewart's own functions
+void open_file_and_write (int sock, char * filename);
+int create_socket(gfcrequest_t *gfr, struct sockaddr_in * serv_addr);
 
 typedef struct gfcrequest_t{
 	char *server;
@@ -114,6 +117,16 @@ void gfc_set_writearg(gfcrequest_t *gfr, void *writearg){
 	 */
 	gfr->writearg = writearg;
 }
+/*
+int create_request_str(char * path){
+	const char* line_ending = "\r\n\r\n";
+	const char* line_beg = "GETFILE GET";
+	char *request_str = (char *)malloc(strlen(line_beg)+  strlen(path) +  strlen(line_ending) + 3);
+
+	sprintf(request_str, "%s %s %s", line_beg, path, line_ending);
+	return request_str;
+}
+*/
 
 int gfc_perform(gfcrequest_t *gfr){
 
@@ -132,58 +145,105 @@ int gfc_perform(gfcrequest_t *gfr){
 	int bytes_written;
 	struct sockaddr_in serv_addr;
 	struct hostent *server;
-	char request_str[300];
-	//char *request_str = malloc(sizeof("GETFILE ")+sizeof("GET ") + sizeof(gfr->path));
+	const char* line_ending = "\r\n\r\n";
+	const char* line_beg = "GETFILE GET";
+	//Create request_str
+	char *request_str = (char *)malloc(strlen(line_beg) + strlen(gfr->path) +  strlen(line_ending) + 3);
+	sprintf(request_str, "%s %s %s", line_beg, gfr->path, line_ending);
 
-	sprintf(request_str, "GETFILE GET %s", gfr->path);
-	//Create server from gfr
+	//test prints
 	printf("This is the server: %s\n", gfr->server);
-	puts("stewy\n");
+	printf("This is the port: %d\n", gfr->port);
+	printf("This is the path: %s\n", gfr->path);
+	printf("This is the request str: %s\n", request_str);
 
-	server = gethostbyname(gfr->server);
-
-	if(server == NULL){
-		perror("Error: No such host\n");
+	sockfd = create_socket(gfr, &serv_addr);
+	if (sockfd < 0){
+		perror("hello\n");
 		return EXIT_FAILURE;
 	}
 
-	//getnameinfo(&serv_addr, sizeof(serv_addr), gfr->server, sizeof(gfr->server), NULL, 0, 0);
-
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	if(sockfd < 0){
-		perror("Error: Could not create socket\n");
-		return EXIT_FAILURE;
-	}
-
-	//Update serv_addr struct to have server information
-
-	bzero((char *) &serv_addr, sizeof(serv_addr));
-	serv_addr.sin_family = AF_INET;
-	bcopy((char *)server->h_addr,
-			(char *)&serv_addr.sin_addr.s_addr,
-			server->h_length);
-	//Update port number before connect
-	serv_addr.sin_port = htons(gfr->port);
-	printf("This is the sent text: %s", request_str);
-	bzero((char *) &serv_addr, sizeof(serv_addr));
-
-	n_conn = connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-	if (n_conn < 0){
-		perror("Could not establish connection\n");
-		return EXIT_FAILURE;
-	}
-
-	char buffer[1000];
-	char * x = "client -> server\n";
-	bytes_written = send(sockfd, x, sizeof x, 0);
-	bytes_read = recv(sockfd, (void *)buffer, sizeof(buffer),0);
+	printf("CLIENT: This is the request str: %s\n", request_str);
+	bytes_written = send(sockfd, request_str, strlen(request_str), 0);
+	//bytes_read = recv(sockfd, (void *)buffer, sizeof(buffer),0);
 
 
 	gfr->writefunc((void *)&sockfd, sizeof(&sockfd), gfr->writearg);
 	puts("COMPLETE CLIENT\n");
+	free(request_str);
 	return 0;
 }
 
+int create_socket(gfcrequest_t *gfr, struct sockaddr_in * serv_addr){
+	/*
+	 This function uses gfr struct to create socket.
+	 If no exceptions are raised the socket file descriptor is returned.
+	 */
+	int sockfd = 0;
+	struct hostent *server;
+	server = gethostbyname(gfr->server);
+	if(server == NULL){
+		perror("Error: No such host");
+		return EXIT_FAILURE;
+	}
+
+	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+		perror("Error: Could not create socket");
+		return EXIT_FAILURE;
+	}
+	bzero((char *) serv_addr, sizeof(serv_addr));
+	serv_addr->sin_family = AF_INET;
+	bcopy((char *)server->h_addr,
+			(char *)&serv_addr->sin_addr.s_addr,
+			server->h_length);
+	serv_addr->sin_port = htons(gfr->port);
+
+	if(connect(sockfd, (struct sockaddr *)serv_addr, sizeof(*serv_addr)) == -1){
+		perror("Could not establish connection");
+		return EXIT_FAILURE;
+	}
+	return sockfd;
+}
+
+void write_to_socket(int sock, char * buffer){
+	int bytes_read = strlen(buffer);
+	int bytes_written;
+	void *p = buffer;
+	while (bytes_read > 0){
+		bytes_written = send(sock, p, bytes_read,0);
+		printf("client: bytes written %d\n", bytes_written);
+		printf("written: '%s'", p);
+		if (bytes_written <= 0){
+			error("pERROR writing to socket");
+		}
+		bytes_read -= bytes_written;
+		p+=bytes_written;
+	}
+}
+void read_and_print (int sock)
+{
+
+    int fhandle_open;
+    int bytes_read;
+    int bytes_written;
+    char buffer[4096];
+
+    while (1){
+
+    	bytes_read = recv(sock, (void *)buffer, sizeof(buffer),0);
+    	printf("client: bytes read %d\n", bytes_read);
+    	if (bytes_read == 0){
+    		break;
+    	}
+    	else if (bytes_read < 0){
+    		error("ERROR reading socket");
+    	}
+    	void *p = buffer;
+    	printf("CLIENT: this was read from socket '%s'\n", buffer);
+    }
+    puts("complete client\n");
+
+}
 gfstatus_t gfc_get_status(gfcrequest_t *gfr){
 	/*
 	 * Returns the status of the response.
