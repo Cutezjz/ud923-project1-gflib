@@ -12,7 +12,7 @@
 #include "gfclient.h"
 
 //Stewart's own functions
-void open_file_and_write (int sock, char * filename);
+//void open_file_and_write (int sock, char * filename);
 int create_socket(gfcrequest_t *gfr, struct sockaddr_in * serv_addr);
 
 typedef struct gfcrequest_t{
@@ -92,6 +92,10 @@ void gfc_set_headerarg(gfcrequest_t *gfr, void *headerarg){
 	/*
 	 * Sets the third argument for all calls to the registered header callback.
 	 */
+	gfr->headerarg = malloc(sizeof headerarg);
+	if (gfr->headerarg == NULL){
+		perror("ERROR SETTING headerarg\n");
+	}
 	gfr->headerarg = headerarg;
 }
 
@@ -115,6 +119,10 @@ void gfc_set_writearg(gfcrequest_t *gfr, void *writearg){
 	/*
 	 * Sets the third argument for all calls to the registered header callback.
 	 */
+	gfr->writearg = malloc(sizeof writearg);
+	if (gfr->writearg == NULL){
+		perror("ERROR SETTING writearg\n");
+	}
 	gfr->writearg = writearg;
 }
 /*
@@ -138,13 +146,8 @@ int gfc_perform(gfcrequest_t *gfr){
 	 * transfer is complete or an invalid header is returned), then a negative
 	 * integer will be returned.
 	 */
-	char str[80];
 	int sockfd = 0; //socket file descriptor
-	int n_conn;
-	int bytes_read;
-	int bytes_written;
 	struct sockaddr_in serv_addr;
-	struct hostent *server;
 	const char* line_ending = "\r\n\r\n";
 	const char* line_beg = "GETFILE GET";
 	//Create request_str
@@ -164,9 +167,7 @@ int gfc_perform(gfcrequest_t *gfr){
 	}
 
 	printf("CLIENT: This is the request str: %s\n", request_str);
-	bytes_written = send(sockfd, request_str, strlen(request_str), 0);
-	//bytes_read = recv(sockfd, (void *)buffer, sizeof(buffer),0);
-
+    send(sockfd, request_str, strlen(request_str), 0);
 
 	gfr->writefunc((void *)&sockfd, sizeof(&sockfd), gfr->writearg);
 	puts("COMPLETE CLIENT\n");
@@ -212,9 +213,9 @@ void write_to_socket(int sock, char * buffer){
 	while (bytes_read > 0){
 		bytes_written = send(sock, p, bytes_read,0);
 		printf("client: bytes written %d\n", bytes_written);
-		printf("written: '%s'", p);
+		printf("written: '%s'", (char *)p);
 		if (bytes_written <= 0){
-			error("pERROR writing to socket");
+			perror("pERROR writing to socket");
 		}
 		bytes_read -= bytes_written;
 		p+=bytes_written;
@@ -223,9 +224,7 @@ void write_to_socket(int sock, char * buffer){
 void read_and_print (int sock)
 {
 
-    int fhandle_open;
     int bytes_read;
-    int bytes_written;
     char buffer[4096];
 
     while (1){
@@ -236,10 +235,10 @@ void read_and_print (int sock)
     		break;
     	}
     	else if (bytes_read < 0){
-    		error("ERROR reading socket");
+    		perror("ERROR reading socket");
     	}
-    	void *p = buffer;
-    	printf("CLIENT: this was read from socket '%s'\n", buffer);
+
+    	printf("CLIENT: this was read from socket '%s'\n", (char *)buffer);
     }
     puts("complete client\n");
 

@@ -33,7 +33,11 @@ typedef struct gfserver_t{
 
 typedef struct gfcontext_t{
 	int sockfd;
+	gfstatus_t status;
 }gfcontext_t;
+
+//SB FUNCTIONS
+int get_path(gfcontext_t *gfc, char *fpath);
 
 ssize_t gfs_sendheader(gfcontext_t *ctx, gfstatus_t status, size_t file_len){
 
@@ -62,7 +66,7 @@ ssize_t gfs_sendheader(gfcontext_t *ctx, gfstatus_t status, size_t file_len){
 	else{
 		strcpy(str_status, "ERROR");
 	}
-	char *header = (char *)malloc(strlen(scheme) + strlen(str_status) + strlen(int_str) + 1);
+	char *header = (char *)malloc(strlen(scheme) + strlen(str_status) + strlen(int_str) + 3);
 	sprintf(header, "%s %s %s", scheme, str_status, int_str);
 	return send(ctx->sockfd, (void*)header, sizeof(header), 0);
 
@@ -132,6 +136,7 @@ void gfserver_set_handlerarg(gfserver_t *gfs, void* arg){
 	/*
 	 * Sets the third argument for calls to the handler callback.
 	 */
+	gfs->handlerarg = malloc(sizeof(arg) + 1);
 	gfs->handlerarg = arg;
 }
 
@@ -141,8 +146,10 @@ void gfserver_serve(gfserver_t *gfs){
 	 */
 	  //int portno = 8888; /* port to listen on */
 	  int sockfd, newsockfd;
+	  char client_req_path[1000];
 	  socklen_t clilen;
 	  struct sockaddr_in serv_addr, cli_addr;
+	  char fpath[256];
 
 	  sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	  if (sockfd < 0){
@@ -167,12 +174,78 @@ void gfserver_serve(gfserver_t *gfs){
 	  while (1){
 		  newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
 		  if (newsockfd < 0){
-			  error("ERROR on accept");
+			  perror("ERROR on accept");
 		  }
-		  char temp_str[1000];
-		  bzero(temp_str, 1000);
-		  recv(newsockfd, (void*)temp_str, sizeof(temp_str), 0);
-		  printf("SERVER:This is the mess from the client %s\n", temp_str);
+		  gfcontext_t *gfc = (gfcontext_t *)malloc(sizeof(gfcontext_t));
+		  gfc->sockfd = newsockfd;
+
+		  bzero(client_req_path, 1000);
+		  recv(gfc->sockfd , (void*)client_req_path, sizeof(client_req_path), 0);
+		  printf("SERVER:This is the mess from the client %s\n", client_req_path);
+		  //(gfcontext_t *, char *, void*)
+		  //gfs->handlerfunc(gfc, client_req_path, gfs->handlerarg);
+		  get_path(gfc, &fpath);
 	  }
+}
+
+int get_path(gfcontext_t *gfc, char *fpath){
+	int bytes_read = 0;
+	int rem_arr = 1000;
+	char client_req_path[1000] = "";
+	char *p = client_req_path;
+	char *beg_path = "GETFILE GET ";
+	char *end_path = "\r\n\r\n";
+	int index = 0;
+	while (1){
+		bytes_read = recv(gfc->sockfd , (void*)p, rem_arr, 0);
+		if (bytes_read < 0){
+			perror("Error reading socket\n");
+		}
+		else if (bytes_read == 0){
+			break;
+		}
+		else{
+			p+=bytes_read;
+			rem_arr-=bytes_read;
+		}
+	}
+
+	//Check that string begins with GETFILE GET
+	int beg_compare_length = strlen(beg_path);
+
+	if (strncmp(beg_path, client_req_path, beg_compare_length) !=0){
+		gfc->status = GF_FILE_NOT_FOUND;
+		return -1;
+	}
+
+
+	p = &client_req_path[beg_compare_length];
+	char *p_fpath = fpath;
+	int break_bool = 0;
+	while (*p != 0){
+		if (strncmp(p, end_path, strlen(end_path)) == 0){
+			break_bool = 1;
+			break;
+		}
+		*p_fpath = *p;
+		p_fpath++;
+		p++;
+	}
+	//If the loop wasn't broken out of by strncmp than the syntax
+	//wasnt correct in sent path
+	if (break_bool == 0){
+		gfc->status = GF_FILE_NOT_FOUND;
+		return -1;
+	}
+	if( access(fpath, F_OK) != -1){
+		gfc->status = GF_OK;
+		return 0;
+	}
+	else{
+		gfc->status = GF_FILE_NOT_FOUND;
+		return -1;
+	}
+
+
 }
 
