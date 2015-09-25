@@ -16,10 +16,12 @@ ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg){
 	ssize_t read_len, write_len;
 	char buffer[BUFFER_SIZE];
 
+	printf("handler.c path = %s\n", path);
 	if( 0 > (fildes = content_get(path)))
 		return gfs_sendheader(ctx, GF_FILE_NOT_FOUND, 0);
 
 	/* Calculating the file size */
+	file_len = lseek(fildes, 0, SEEK_END);
 
 	gfs_sendheader(ctx, GF_OK, file_len);
 
@@ -39,8 +41,11 @@ ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg){
 			return -1;
 		}
 		bytes_transferred += write_len;
+		printf("HANDLER: write_len = %zu\n", write_len);
+		printf("HANDLER: bytes_transferred = %zu\n", bytes_transferred);
 	}
 
+	printf("HANDLER: TOTAL bytes_transferred = %zu\n", bytes_transferred);
 	return bytes_transferred;
 }
 

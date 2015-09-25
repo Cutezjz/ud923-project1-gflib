@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include <math.h>
 /* 
  * Modify this file to implement the interface specified in
  * gfserver.h.
@@ -34,10 +35,13 @@ typedef struct gfserver_t{
 typedef struct gfcontext_t{
 	int sockfd;
 	gfstatus_t status;
+	char fpath[256];
+	char client_req_path[1000];
 }gfcontext_t;
 
 //SB FUNCTIONS
-int get_path(gfcontext_t *gfc, char *fpath);
+int gfc_get_path(gfcontext_t *gfc);
+void gfc_create_path(gfcontext_t *gfc, char *path);
 
 ssize_t gfs_sendheader(gfcontext_t *ctx, gfstatus_t status, size_t file_len){
 
@@ -51,11 +55,10 @@ ssize_t gfs_sendheader(gfcontext_t *ctx, gfstatus_t status, size_t file_len){
 
 
 	char *scheme = "GETFILE";
-	char int_str[15];
 	char str_status[15];
 
 	//Create string from integer of file length
-	sprintf(int_str, "%zu", file_len);
+	//sprintf(int_str, "%zu", file_len);
 	//Get a string status from macro definitions
 	if (status == GF_OK){
 		strcpy(str_status, "OK");
@@ -66,9 +69,13 @@ ssize_t gfs_sendheader(gfcontext_t *ctx, gfstatus_t status, size_t file_len){
 	else{
 		strcpy(str_status, "ERROR");
 	}
-	char *header = (char *)malloc(strlen(scheme) + strlen(str_status) + strlen(int_str) + 3);
-	sprintf(header, "%s %s %s", scheme, str_status, int_str);
-	return send(ctx->sockfd, (void*)header, sizeof(header), 0);
+
+	//size of scheme + size of status + max size int 4294967295 (len = 10, add 5
+	//for good measure) add 3 for each subelement of array
+	char *header = (char *)malloc(strlen(scheme) + strlen(str_status) + 15 + 3);
+	printf("scheme = %s, status = %s, filelen = %zu\n", scheme, str_status, file_len);
+	sprintf(header, "%s %s %zu\r\n\r\n", scheme, str_status, file_len);
+	return send(ctx->sockfd, (void*)header, strlen(header), 0);
 
 }
 
@@ -80,7 +87,12 @@ ssize_t gfs_send(gfcontext_t *ctx, void *data, size_t len){
 	 * sent.
 	 */
 
-	return send(ctx->sockfd, (void*)data, len, 0);
+	ssize_t i = send(ctx->sockfd, (void*)data, len, 0);
+	if (i == -1)
+		perror("gfs_send: had an error sending\n");
+	else
+		printf("gfs_send: sent this size %zu\n", i);
+	return i;
 }
 
 void gfs_abort(gfcontext_t *ctx){
@@ -144,12 +156,10 @@ void gfserver_serve(gfserver_t *gfs){
 	/*
 	 * Starts the server.  Does not return.
 	 */
-	  //int portno = 8888; /* port to listen on */
 	  int sockfd, newsockfd;
-	  char client_req_path[1000];
 	  socklen_t clilen;
 	  struct sockaddr_in serv_addr, cli_addr;
-	  char fpath[256];
+
 
 	  sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	  if (sockfd < 0){
@@ -179,73 +189,45 @@ void gfserver_serve(gfserver_t *gfs){
 		  gfcontext_t *gfc = (gfcontext_t *)malloc(sizeof(gfcontext_t));
 		  gfc->sockfd = newsockfd;
 
-		  bzero(client_req_path, 1000);
-		  recv(gfc->sockfd , (void*)client_req_path, sizeof(client_req_path), 0);
-		  printf("SERVER:This is the mess from the client %s\n", client_req_path);
-		  //(gfcontext_t *, char *, void*)
-		  //gfs->handlerfunc(gfc, client_req_path, gfs->handlerarg);
-		  get_path(gfc, &fpath);
+		  //receieve fullpath GETFILE GET FILEPATH\r\n\r\n
+		  recv(gfc->sockfd , (void*)gfc->client_req_path, 1000, 0);
+		  //from client sent path extract FILEPATH
+		  gfc_get_path(gfc);
+		  printf("SERVER:This is the client request %s\n", gfc->client_req_path);
+		  printf("SERVER:This is the extracted filepath %s\n", gfc->fpath);
+		  //call handler.handler_get()
+		  //gfs->handlerfunc(gfc, "/courses/ud923/filecorpus/paraglider.jpg", gfs->handlerarg);
+		  gfs->handlerfunc(gfc, gfc->fpath, gfs->handlerarg);
 	  }
 }
 
-int get_path(gfcontext_t *gfc, char *fpath){
-	int bytes_read = 0;
-	int rem_arr = 1000;
-	char client_req_path[1000] = "";
-	char *p = client_req_path;
-	char *beg_path = "GETFILE GET ";
-	char *end_path = "\r\n\r\n";
-	int index = 0;
-	while (1){
-		bytes_read = recv(gfc->sockfd , (void*)p, rem_arr, 0);
-		if (bytes_read < 0){
-			perror("Error reading socket\n");
-		}
-		else if (bytes_read == 0){
-			break;
-		}
-		else{
-			p+=bytes_read;
-			rem_arr-=bytes_read;
-		}
-	}
+int gfc_get_path(gfcontext_t *gfc){
+	int ret_scanf;
+	char temp_pot_fpath[256] ="";
 
-	//Check that string begins with GETFILE GET
-	int beg_compare_length = strlen(beg_path);
+	//request must end with \r\n\r\n or space
+	ret_scanf = sscanf(gfc->client_req_path, "GETFILE GET %s\r\n\r\n", temp_pot_fpath);
+	if (ret_scanf == EOF)
+		ret_scanf = sscanf(gfc->client_req_path, "GETFILE GET %s ", temp_pot_fpath);
 
-	if (strncmp(beg_path, client_req_path, beg_compare_length) !=0){
-		gfc->status = GF_FILE_NOT_FOUND;
-		return -1;
-	}
-
-
-	p = &client_req_path[beg_compare_length];
-	char *p_fpath = fpath;
-	int break_bool = 0;
-	while (*p != 0){
-		if (strncmp(p, end_path, strlen(end_path)) == 0){
-			break_bool = 1;
-			break;
-		}
-		*p_fpath = *p;
-		p_fpath++;
-		p++;
-	}
-	//If the loop wasn't broken out of by strncmp than the syntax
-	//wasnt correct in sent path
-	if (break_bool == 0){
-		gfc->status = GF_FILE_NOT_FOUND;
-		return -1;
-	}
-	if( access(fpath, F_OK) != -1){
-		gfc->status = GF_OK;
-		return 0;
+	if (ret_scanf == EOF){
+		perror("PATH WAS PARSED but fpath not found\n");
+		gfc_create_path(gfc, "");
 	}
 	else{
-		gfc->status = GF_FILE_NOT_FOUND;
-		return -1;
+		//fpath start with "/"
+		if (strncmp(temp_pot_fpath, (char *)"/", 1) == 0){
+			gfc_create_path(gfc, temp_pot_fpath);
+			printf("GFC-path sucessfuly set to '%s'\n", gfc->fpath);
+		}
+		else{
+			gfc_create_path(gfc, "");
+			perror("FPATH DID NOT BEGIN WIHT '\'\n");
+		}
 	}
-
-
+	return 1;
 }
 
+void gfc_create_path(gfcontext_t *gfc, char *path){
+	strcpy(gfc->fpath, path);
+}

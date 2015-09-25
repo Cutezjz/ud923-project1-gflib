@@ -14,17 +14,19 @@
 //Stewart's own functions
 //void open_file_and_write (int sock, char * filename);
 int create_socket(gfcrequest_t *gfr, struct sockaddr_in * serv_addr);
+int gfc_intstatus(char * status);
 
 typedef struct gfcrequest_t{
 	char *server;
 	char *path;
 	unsigned short port;
-	int status;
+	gfstatus_t status;
 	void (*headerfunc)(void*, size_t, void *);
 	void *headerarg;
 	void (*writefunc)(void*, size_t, void *);
 	void *writearg;
 	size_t bytesreceived;
+	size_t file_size;
 }gfcrequest_t;
 
 gfcrequest_t *gfc_create(){
@@ -35,6 +37,12 @@ gfcrequest_t *gfc_create(){
 	 * this requeest.
 	 */
 	gfcrequest_t *gfr = (gfcrequest_t *)malloc(sizeof(gfcrequest_t));
+	gfr->headerfunc = NULL;
+	gfr->headerarg = NULL;
+	gfr->writefunc = NULL;
+	gfr->writearg = NULL;
+	gfr->bytesreceived = 0;
+	gfr->file_size = 0;
 
 	return gfr;
 }
@@ -63,6 +71,7 @@ void gfc_set_path(gfcrequest_t *gfr, char* path){
 		perror("ERROR SETTING PATH\n");
 
 	}
+	//localPath(path, gfr->path);
 	strcpy(gfr->path, path);
 }
 
@@ -150,9 +159,17 @@ int gfc_perform(gfcrequest_t *gfr){
 	struct sockaddr_in serv_addr;
 	const char* line_ending = "\r\n\r\n";
 	const char* line_beg = "GETFILE GET";
+	char header[1000] ="";
+	char *p_header = header;
+	int bytes_read;
+	int total_bytes_read = 0;
+	int header_size = 200;
+	int ret_scanf;
+	size_t file_size = 0;
+	char str_status[15];
 	//Create request_str
 	char *request_str = (char *)malloc(strlen(line_beg) + strlen(gfr->path) +  strlen(line_ending) + 3);
-	sprintf(request_str, "%s %s %s", line_beg, gfr->path, line_ending);
+	sprintf(request_str, "%s %s%s", line_beg, gfr->path, line_ending);
 
 	//test prints
 	printf("This is the server: %s\n", gfr->server);
@@ -166,10 +183,66 @@ int gfc_perform(gfcrequest_t *gfr){
 		return EXIT_FAILURE;
 	}
 
-	printf("CLIENT: This is the request str: %s\n", request_str);
+	printf("CLIENT: This is the request str sent: %s\n", request_str);
     send(sockfd, request_str, strlen(request_str), 0);
 
-	gfr->writefunc((void *)&sockfd, sizeof(&sockfd), gfr->writearg);
+
+    //get header
+    while (1){
+    	bzero(p_header, header_size);
+    	bytes_read = recv(sockfd, (void *)p_header, header_size,0);
+    	p_header += bytes_read;
+    	header_size-=bytes_read;
+    	total_bytes_read+=bytes_read;
+    	printf("client: bytes read %d\n", bytes_read);
+    	if (bytes_read == 0){
+    		break;
+    	}
+    	else if (bytes_read < 0){
+    		perror("ERROR reading socket");
+    	}
+    }
+    if (gfr->headerfunc == NULL)
+    	puts("CLIENT: Headerfunction not set");
+    else
+    	gfr->headerfunc((void*)header, total_bytes_read, gfr->headerarg);
+    //get file size from header
+	ret_scanf = sscanf(header, "GETFILE %s %zu\r\n\r\n", str_status, &file_size);
+	printf("str status = %s, filzesize = %zu\n", str_status, file_size);
+	if (ret_scanf == EOF){
+		perror("PATH WAS PARSED but fpath not found\n");
+		gfr->status = GF_FILE_NOT_FOUND;
+	}
+	else{
+		gfr->status = gfc_intstatus(str_status);
+		gfr->file_size = file_size;
+	}
+    //get data
+	total_bytes_read = 0;
+	char * file_data = (char *)calloc(gfr->file_size, sizeof(char));
+	char *p_file_data = file_data;
+	size_t data_remaining = gfr->file_size;
+    //while (total_bytes_read < gfr->file_size){
+	while (1){
+    	bytes_read = recv(sockfd, (void *)p_file_data, data_remaining,0);
+		//bytes_read = recv(sockfd, (void *)file_data, data_remaining,0);
+    	if (bytes_read == 0){
+    		break;
+    	}
+    	else if (bytes_read < 0){
+    		perror("ERROR reading socket");
+    	}
+    	p_file_data += bytes_read;
+    	data_remaining-=bytes_read;
+    	total_bytes_read+=bytes_read;
+    	printf("bytes_read = %d\n", bytes_read);
+    	printf("total bytes_read = %d\n", total_bytes_read);
+    	if (gfr->writefunc == NULL)
+    		puts("CLIENT: WRITEFUNC not set");
+    	else
+    		gfr->writefunc((void *)p_file_data, bytes_read, gfr->writearg);
+    }
+
 	puts("COMPLETE CLIENT\n");
 	free(request_str);
 	return 0;
@@ -269,6 +342,25 @@ char* gfc_strstatus(gfstatus_t status){
 	else
 	{
 		return "ERROR";
+	}
+}
+
+int gfc_intstatus(char * status){
+	/*
+	 * Returns the string associated with the input status
+	 */
+	const char *ok = "OK";
+	const char *fnf = "FILE_NOT_FOUND";
+	const char *err = "ERROR";
+	if (strncmp(status, ok, strlen(ok)) == 0)
+		return GF_OK;
+	else if (strncmp(status, fnf, strlen(fnf)) == 0)
+		return GF_FILE_NOT_FOUND;
+	else if (strncmp(status, err, strlen(err)) == 0)
+		return GF_ERROR;
+	else{
+		printf("gfc_intstatus: status given not of appropiate form '%s'", status);
+		return -1;
 	}
 }
 
