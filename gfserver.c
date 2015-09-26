@@ -55,26 +55,29 @@ ssize_t gfs_sendheader(gfcontext_t *ctx, gfstatus_t status, size_t file_len){
 
 
 	char *scheme = "GETFILE";
-	char str_status[15];
+	char str_status[15] = "";
+	//size of scheme + size of status + max size int 4294967295 (len = 10, add 5
+	//for good measure) add 3 for each subelement of array
+	char *header = (char *)malloc(strlen(scheme) + sizeof(str_status) + 15 + 3);
 
 	//Create string from integer of file length
 	//sprintf(int_str, "%zu", file_len);
 	//Get a string status from macro definitions
 	if (status == GF_OK){
 		strcpy(str_status, "OK");
+		sprintf(header, "%s %s %zu\r\n\r\n", scheme, str_status, file_len);
 	}
 	else if (status == GF_FILE_NOT_FOUND){
 		strcpy(str_status, "FILE_NOT_FOUND");
+		sprintf(header, "%s %s \r\n\r\n", scheme, str_status);
 	}
 	else{
 		strcpy(str_status, "ERROR");
+		sprintf(header, "%s %s \r\n\r\n", scheme, str_status);
 	}
 
-	//size of scheme + size of status + max size int 4294967295 (len = 10, add 5
-	//for good measure) add 3 for each subelement of array
-	char *header = (char *)malloc(strlen(scheme) + strlen(str_status) + 15 + 3);
 	printf("scheme = %s, status = %s, filelen = %zu\n", scheme, str_status, file_len);
-	sprintf(header, "%s %s %zu\r\n\r\n", scheme, str_status, file_len);
+	printf("gfserver.sendheaver = %s\n", header);
 	return send(ctx->sockfd, (void*)header, strlen(header), 0);
 
 }
@@ -100,6 +103,7 @@ void gfs_abort(gfcontext_t *ctx){
 	 * Aborts the connection to the client associated with the input
 	 * gfcontext_t.
 	 */
+	close(ctx->sockfd);
 
 }
 
@@ -192,16 +196,19 @@ void gfserver_serve(gfserver_t *gfs){
 		  //receieve fullpath GETFILE GET FILEPATH\r\n\r\n
 		  recv(gfc->sockfd , (void*)gfc->client_req_path, 1000, 0);
 		  //from client sent path extract FILEPATH
-		  gfc_get_path(gfc);
+		  int malf_bool = gfc_get_path(gfc);
 		  printf("SERVER:This is the client request %s\n", gfc->client_req_path);
 		  printf("SERVER:This is the extracted filepath %s\n", gfc->fpath);
-		  //call handler.handler_get()
-		  //gfs->handlerfunc(gfc, "/courses/ud923/filecorpus/paraglider.jpg", gfs->handlerarg);
-		  gfs->handlerfunc(gfc, gfc->fpath, gfs->handlerarg);
+		  if (malf_bool == 0)
+			  gfs->handlerfunc(gfc, gfc->fpath, gfs->handlerarg);
 	  }
 }
 
 int gfc_get_path(gfcontext_t *gfc){
+	/*
+	 returns 0 if request is not malformed
+	 returns -1 if request
+	 */
 	int ret_scanf;
 	char temp_pot_fpath[256] ="";
 
@@ -213,16 +220,19 @@ int gfc_get_path(gfcontext_t *gfc){
 	if (ret_scanf == EOF){
 		perror("PATH WAS PARSED but fpath not found\n");
 		gfc_create_path(gfc, "");
+		return -1;
 	}
 	else{
 		//fpath start with "/"
 		if (strncmp(temp_pot_fpath, (char *)"/", 1) == 0){
 			gfc_create_path(gfc, temp_pot_fpath);
 			printf("GFC-path sucessfuly set to '%s'\n", gfc->fpath);
+			return 0;
 		}
 		else{
 			gfc_create_path(gfc, "");
-			perror("FPATH DID NOT BEGIN WIHT '\'\n");
+			perror("FPATH DID NOT BEGIN WIHT '/'\n");
+			return -1;
 		}
 	}
 	return 1;

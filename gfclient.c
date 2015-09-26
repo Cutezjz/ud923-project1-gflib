@@ -161,19 +161,22 @@ int gfc_perform(gfcrequest_t *gfr){
 	const char* line_beg = "GETFILE GET";
 	char header[1000] ="";
 	char *p_header = header;
-	int bytes_read;
+	int bytes_read = 0;
 	int total_bytes_read = 0;
 	int header_size = 200;
 	int ret_scanf;
 	size_t file_size = 0;
 	char str_status[15];
-	int iter = 0;
-	char buffer[100] = "";
+	char buffer[4096] = "";
+	char *p_buff = buffer;
+	int buff_size = 4096;
 	char *p_file_data = NULL;
 	int header_len = 0;
 	int bytes_wrote = 0;
 	int total_bytes_wrote = 0;
 	size_t data_remaining = 0;
+	int rnrn_flag = 0;
+	int malform_flag = 0;
 	//Create request_str
 	char *request_str = (char *)malloc(strlen(line_beg) + strlen(gfr->path) +  strlen(line_ending) + 3);
 	sprintf(request_str, "%s %s%s", line_beg, gfr->path, line_ending);
@@ -196,9 +199,54 @@ int gfc_perform(gfcrequest_t *gfr){
     //get header and data
     data_remaining = 1;
 	while (data_remaining != 0){
-		bytes_read = recv(sockfd, (void *)buffer, 100,0);
-		bytes_wrote = bytes_read;
-		p_file_data = buffer;
+		buff_size = 4096;
+		p_buff = buffer;
+		bytes_read = 0;
+		int init_bytes_read = 0;
+		while (1){
+			//bytes_read = recv(sockfd, (void *)p_buff, buff_size,0);
+			bytes_read = recv(sockfd, (void *)p_buff, 4096, 0);
+			bytes_wrote = bytes_read;
+			init_bytes_read+=bytes_read;
+			p_file_data = buffer;
+			if (rnrn_flag == 1){
+				break;
+			}
+			else if (bytes_read == 0){
+				//never found \r\n\r\n flag. Malformed request
+				gfr->status = GF_FILE_NOT_FOUND;
+				gfr->file_size = 0;
+			}
+			else if (strstr(buffer, line_ending) != NULL){
+				//found rnrn. Set flag
+				rnrn_flag = 1;
+				ret_scanf = sscanf(buffer, "GETFILE %s %zu\r\n\r\n", str_status, &file_size);
+				printf("str status = %s, filzesize = %zu\n", str_status, file_size);
+				if (ret_scanf == EOF || ret_scanf < 2){
+					ret_scanf = sscanf(buffer, "GETFILE %s \r\n\r\n", str_status);
+					perror("PATH WAS PARSED but fpath not found\n");
+					gfr->status = gfc_intstatus(str_status);
+					break;
+				}
+				else{
+					sprintf(header, "GETFILE %s %zu\r\n\r\n", str_status, file_size);
+					printf("this is the header: %s\n", header);
+					gfr->status = gfc_intstatus(str_status);
+					gfr->file_size = file_size;
+					data_remaining = file_size;
+					header_len = strlen(header);
+					bytes_wrote = init_bytes_read - header_len;
+					p_file_data = buffer + header_len;
+				}
+				break;
+			}
+			else{
+				puts("No rnrn found. Loop again");
+			}
+			buff_size-=bytes_read;
+			p_buff+=bytes_read;
+		}
+
 		//Finished reading
     	if (bytes_read == 0){
     		break;
@@ -210,42 +258,20 @@ int gfc_perform(gfcrequest_t *gfr){
     	else{
     		//first loop will contain header
     		//parse to find information
-    		if (iter == 0){
-				ret_scanf = sscanf(buffer, "GETFILE %s %zu\r\n\r\n", str_status, &file_size);
-				printf("str status = %s, filzesize = %zu\n", str_status, file_size);
-				if (ret_scanf == EOF){
-					perror("PATH WAS PARSED but fpath not found\n");
-					gfr->status = GF_FILE_NOT_FOUND;
-				}
-				else{
-					sprintf(header, "GETFILE %s %zu\r\n\r\n", str_status, file_size);
-					printf("this is the header: %s\n", header);
-					gfr->status = gfc_intstatus(str_status);
-					gfr->file_size = file_size;
-					data_remaining = file_size;
-					header_len = strlen(header);
-				}
-				//gfr->writefunc needs len of data;
-				bytes_wrote-=header_len;
-				p_file_data += header_len;
-    		}
 
-        	total_bytes_read+=bytes_read;
-        	total_bytes_wrote+=bytes_wrote;
-        	data_remaining-=bytes_wrote;
-        	printf("bytes_read = %d\n", bytes_read);
-        	printf("total bytes_read = %d\n", total_bytes_read);
-        	if (gfr->writefunc == NULL)
-        		puts("CLIENT: WRITEFUNC not set");
+
+        	if (gfr->writefunc == NULL || gfr->status != GF_OK){
+        		puts("CLIENT: WRITEFUNC not set or Filestatus != OK");
+        		break;
+        	}
         	else
+        		gfr->bytesreceived+=bytes_wrote;
+            	total_bytes_read+=bytes_read;
+            	total_bytes_wrote+=bytes_wrote;
+            	data_remaining-=bytes_wrote;
         		gfr->writefunc((void *)p_file_data, bytes_wrote, gfr->writearg);
-        		//fflush((FILE *)gfr->writearg);
-        		//gfr->writefunc((void *)buffer, bytes_read, gfr->writearg);
-        	printf("bytes_wrote = %d\n", bytes_wrote);
-        	printf("total_bytes_wrote = %d\n", total_bytes_wrote);
-        	printf("data_remaining = %zu\n", data_remaining);
+        		//gfr->file_size+=bytes_wrote;
     	}
-    	iter++;
     }
 
 	puts("COMPLETE CLIENT\n");
@@ -374,13 +400,7 @@ size_t gfc_get_filelen(gfcrequest_t *gfr){
 	 * Returns the length of the file as indicated by the response header.
 	 * Value is not specified if the response status is not OK.
 	 */
-	if (gfr != NULL && gfc_get_status(gfr) == GF_OK)
-	{
-		return sizeof(gfr->path);
-	}
-	else{
-		return -1;
-	}
+	return gfr->file_size;
 }
 
 size_t gfc_get_bytesreceived(gfcrequest_t *gfr){
@@ -397,8 +417,9 @@ void gfc_cleanup(gfcrequest_t *gfr){
 	/*
 	 * Frees memory associated with the request.
 	 */
-	free(gfr->server);
+	free(gfr->writearg);
 	free(gfr->path);
+	free(gfr->server);
 	free(gfr);
 }
 
@@ -407,7 +428,7 @@ void gfc_global_init(){
 	 * Sets up any global data structures needed for the library.
 	 * Warning: this function may not be thread-safe.
 	 */
-	puts("3");
+	puts("Global Init");
 }
 
 
@@ -416,5 +437,5 @@ void gfc_global_cleanup(){
 	 * Cleans up any global data structures needed for the library.
 	 * Warning: this function may not be thread-safe.
 	 */
-	puts("3");
+	puts("Global Cleanup");
 }
