@@ -1,0 +1,3 @@
+/courses/ud923/filecorpus/road.jpg
+/courses/ud923/filecorpus/yellowstone.jpg
+/courses/ud923/filecorpus/moranabovejacksonlake.jpg

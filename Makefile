@@ -7,7 +7,7 @@ endif
 
 all: gfserver_main gfclient_download
 
-gfserver_main: gfserver.o handler.o gfserver_main.o content.o
+gfserver_main: gfserver.o handler.o gfserver_main.o content.o steque.o
 	$(CC) -o $@ $(CFLAGS) $(CURL_CFLAGS) $^ $(LDFLAGS) $(CURL_LIBS)
 
 gfclient_download: gfclient.o workload.o gfclient_download.o
@@ -16,4 +16,8 @@ gfclient_download: gfclient.o workload.o gfclient_download.o
 .PHONY: clean
 
 clean:
+	mv gfserver.o gfserver.o.tmp
+	mv gfclient.o gfclient.o.tmp
 	rm -fr *.o gfserver_main gfclient_download
+	mv gfserver.o.tmp gfserver.o
+	mv gfclient.o.tmp gfclient.o

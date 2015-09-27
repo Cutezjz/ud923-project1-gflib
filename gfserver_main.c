@@ -5,9 +5,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
+#include <pthread.h>
+
 
 #include "gfserver.h"
 #include "content.h"
+#include "steque.h"
 
 #define USAGE                                                                 \
 "usage:\n"                                                                    \
@@ -18,9 +21,15 @@
 "  -c                  Content file mapping keys to content files\n"          \
 "  -h                  Show this help message\n"                              
 
-extern ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg);
+ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg);
+extern ssize_t handler_worker();
 
 //mutli threaded constants
+steque_t* queue;
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t c_cons = PTHREAD_COND_INITIALIZER;
+pthread_cond_t c_proc = PTHREAD_COND_INITIALIZER;
+
 
 /* Main ========================================================= */
 int main(int argc, char **argv) {
@@ -63,6 +72,14 @@ int main(int argc, char **argv) {
   gfserver_set_handler(gfs, handler_get);
   gfserver_set_handlerarg(gfs, NULL);
 
+  //mtimplemnation
+  queue = malloc(sizeof(steque_t));
+  steque_init(queue);
+  //create nthreads threads
+  pthread_t *thread_list = (pthread_t *)malloc(nthreads * sizeof(pthread_t));
+  for (int ii =0; ii < nthreads; ii++){
+	  pthread_create(thread_list + ii, NULL, (void *)&handler_worker, NULL);
+  }
   /*Loops forever*/
   gfserver_serve(gfs);
 }
