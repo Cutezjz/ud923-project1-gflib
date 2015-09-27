@@ -22,7 +22,7 @@
 "  -h                  Show this help message\n"                              
 
 ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg);
-extern ssize_t handler_worker();
+ssize_t handler_worker(void *thread_id);
 
 //mutli threaded constants
 steque_t* queue;
@@ -74,11 +74,13 @@ int main(int argc, char **argv) {
 
   //mtimplemnation
   queue = malloc(sizeof(steque_t));
+  int *thread_id = malloc(sizeof(int) * nthreads);
   steque_init(queue);
   //create nthreads threads
   pthread_t *thread_list = (pthread_t *)malloc(nthreads * sizeof(pthread_t));
   for (int ii =0; ii < nthreads; ii++){
-	  pthread_create(thread_list + ii, NULL, (void *)&handler_worker, NULL);
+	  thread_id[ii] = ii;
+	  pthread_create(thread_list + ii, NULL, (void *)&handler_worker, (void *)&thread_id[ii]);
   }
   /*Loops forever*/
   gfserver_serve(gfs);
