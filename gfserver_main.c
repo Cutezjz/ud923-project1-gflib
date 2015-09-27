@@ -14,6 +14,7 @@
 "  webproxy [options]\n"                                                      \
 "options:\n"                                                                  \
 "  -p                  Listen port (Default: 8888)\n"                         \
+"  -t                  Number of threads (Default: 1)\n"                      \
 "  -c                  Content file mapping keys to content files\n"          \
 "  -h                  Show this help message\n"                              
 
@@ -25,17 +26,21 @@ int main(int argc, char **argv) {
   int option_char = 0;
   unsigned short port = 8888;
   char *content = "content.txt";
+  int nthreads = 1;
   gfserver_t *gfs;
 
   // Parse and set command line arguments
-  while ((option_char = getopt(argc, argv, "p:t:s:h")) != -1) {
+  while ((option_char = getopt(argc, argv, "p:t:c:h")) != -1) {
     switch (option_char) {
       case 'p': // listen-port
         port = atoi(optarg);
         break;
       case 'c': // file-path
         content = optarg;
-        break;                                          
+        break;           
+      case 't': // nthreads
+        nthreads = atoi(optarg);
+        break;                         
       case 'h': // help
         fprintf(stdout, "%s", USAGE);
         exit(0);

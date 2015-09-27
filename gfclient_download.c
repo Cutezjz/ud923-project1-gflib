@@ -111,10 +111,6 @@ int main(int argc, char **argv) {
         break;
       case 't': // nthreads
         nthreads = atoi(optarg);
-        if(nthreads != 1){
-          fprintf(stderr, "Multiple threads not yet supported.\n");
-          exit(0);
-        }
         break;
       case 'h': // help
         Usage();
