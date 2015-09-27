@@ -20,6 +20,7 @@
 
 extern ssize_t handler_get(gfcontext_t *ctx, char *path, void* arg);
 
+//mutli threaded constants
 
 /* Main ========================================================= */
 int main(int argc, char **argv) {
