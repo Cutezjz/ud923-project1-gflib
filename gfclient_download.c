@@ -105,9 +105,9 @@ int main(int argc, char **argv) {
   int i;
   int option_char = 0;
   int nrequests = 1;
-  int nthreads = 1;
+  int nthreads = 2;
   int returncode;
-  gfcrequest_t *gfr;
+  //gfcrequest_t *gfr;
   char *req_path;
 
   // Parse and set command line arguments
@@ -156,7 +156,8 @@ int main(int argc, char **argv) {
 
   for (int ii =0; ii < nthreads; ii++){
 	  thread_id[ii] = ii;
-	  pthread_create(thread_list + ii, NULL, (void *)&client_worker, (void *)&thread_id[ii]);
+	  //pthread_create(thread_list + ii, NULL, (void *)&client_worker, (void *)&thread_id[ii]);
+	  pthread_create(&thread_list[ii], NULL, (void *)&client_worker, (void *)&thread_id[ii]);
   }
   /*Making the requests...*/
   for(i = 0; i < tot_jobs; i++){
@@ -167,10 +168,10 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
     job *job_to_execute = (job *)malloc(sizeof(job));
+    //char local_path[512];
     localPath(req_path, job_to_execute->local_path);
 
     job_to_execute->file = openFile(job_to_execute->local_path);
-
 
     job_to_execute->gfr = gfc_create();
     gfc_set_server(job_to_execute->gfr, server);
@@ -179,6 +180,9 @@ int main(int argc, char **argv) {
     gfc_set_writefunc(job_to_execute->gfr, writecb);
     gfc_set_writearg(job_to_execute->gfr, job_to_execute->file);
 
+    fprintf(stdout, "Requesting %s%s\n", server, req_path);
+
+    //returncode = gfc_perform(job_to_execute->gfr);
 	printf("handler_get: LOCK\n");
 	pthread_mutex_lock(&m);
 		steque_push(queue, job_to_execute);
@@ -187,9 +191,11 @@ int main(int argc, char **argv) {
 	printf("handler_get: UNLOCK\n");
 	pthread_cond_signal(&c_cons);
 
-    fprintf(stdout, "Requesting %s%s\n", server, req_path);
   }
-
+  for (int ii =0; ii < nthreads; ii++){
+	  thread_id[ii] = ii;
+	  pthread_join(thread_list[ii], NULL);
+  }
   gfc_global_cleanup();
 
   return 0;
@@ -197,10 +203,12 @@ int main(int argc, char **argv) {
 
 void client_worker(void *thread_id){
 	int id = *(int *)thread_id;
+	int iii = 0;
 	while (1){
-		printf("start  client_worker %d\n", id);
-		printf("client_worker %d: LOCK\n", id);
+		printf("start  client_worker %d - loop %d\n", id, iii);
+		printf("client_worker %d - loop %d: LOCK\n", id, iii);
 		pthread_mutex_lock(&m);
+			printf("jobs_completed = %d\n", iii);
 			//wait while steque_isempty
 			if (jobs_completed < tot_jobs){
 				while (steque_isempty(queue) != 0){
@@ -209,14 +217,16 @@ void client_worker(void *thread_id){
 					printf("client_worker %d: EXITWAIT\n", id);
 				}
 			}
-			else
+			else{
+				pthread_mutex_unlock(&m);
 				break;
+			}
 			job *job_to_exec = (job *)steque_pop(queue);
 			jobs_completed++;
 			printf("local_path = %s\n", job_to_exec->local_path);
 		pthread_mutex_unlock(&m);
 		printf("client_worker %d: before gfc_perform\n", id);
-		int returncode = gfc_perform((gfcrequest_t *)job_to_exec->gfr);
+		int returncode = gfc_perform(job_to_exec->gfr);
 		printf("client_worker %d: after gfc_perform\n", id);
 		if ( returncode < 0){
 		  fprintf(stdout, "gfc_perform returned an error %d\n", returncode);
@@ -232,11 +242,8 @@ void client_worker(void *thread_id){
 		  if ( 0 > unlink(job_to_exec->local_path))
 			fprintf(stderr, "unlink failed on %s\n", job_to_exec->local_path);
 		}
-
+		iii++;
 		fprintf(stdout, "Status: %s\n", gfc_strstatus(gfc_get_status(job_to_exec->gfr)));
 		fprintf(stdout, "Received %zu of %zu bytes\n", gfc_get_bytesreceived(job_to_exec->gfr), gfc_get_filelen(job_to_exec->gfr));
-		pthread_mutex_lock(&m);
-
-		pthread_mutex_unlock(&m);
 	}
 }
