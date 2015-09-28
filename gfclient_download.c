@@ -7,8 +7,24 @@
 #include <unistd.h>
 #include <stdint.h>
 
+#include <pthread.h>
+#include "steque.h"
 #include "workload.h"
 #include "gfclient.h"
+
+steque_t* queue;
+pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t c_cons = PTHREAD_COND_INITIALIZER;
+int jobs_completed = 0;
+int tot_jobs;
+
+typedef struct job{
+	gfcrequest_t *gfr;
+	FILE *file;
+	char local_path[512];
+}job;
+
+void client_worker(void *thread_id);
 
 #define USAGE                                                                 \
 "usage:\n"                                                                    \
@@ -31,6 +47,8 @@ static struct option gLongOptions[] = {
   {"help",          no_argument,            NULL,           'h'},
   {NULL,            0,                      NULL,             0}
 };
+
+
 
 static void Usage() {
 	fprintf(stdout, "%s", USAGE);
@@ -90,9 +108,7 @@ int main(int argc, char **argv) {
   int nthreads = 1;
   int returncode;
   gfcrequest_t *gfr;
-  FILE *file;
   char *req_path;
-  char local_path[512];
 
   // Parse and set command line arguments
   while ((option_char = getopt_long(argc, argv, "s:p:w:n:t:h", gLongOptions, NULL)) != -1) {
@@ -129,48 +145,98 @@ int main(int argc, char **argv) {
 
   gfc_global_init();
 
+  queue = malloc(sizeof(steque_t));
+  steque_init(queue);
+  int *thread_id = malloc(sizeof(int) * nthreads);
+
+  tot_jobs = nrequests * nthreads;
+  job *jobs = malloc(sizeof(job) * tot_jobs);
+  //create nthreads threads
+  pthread_t *thread_list = (pthread_t *)malloc(nthreads * sizeof(pthread_t));
+
+  for (int ii =0; ii < nthreads; ii++){
+	  thread_id[ii] = ii;
+	  pthread_create(thread_list + ii, NULL, (void *)&client_worker, (void *)&thread_id[ii]);
+  }
   /*Making the requests...*/
-  for(i = 0; i < nrequests * nthreads; i++){
+  for(i = 0; i < tot_jobs; i++){
     req_path = workload_get_path();
 
     if(strlen(req_path) > 256){
       fprintf(stderr, "Request path exceeded maximum of 256 characters\n.");
       exit(EXIT_FAILURE);
     }
+    job *job_to_execute = (job *)malloc(sizeof(job));
+    localPath(req_path, job_to_execute->local_path);
 
-    localPath(req_path, local_path);
+    job_to_execute->file = openFile(job_to_execute->local_path);
 
-    file = openFile(local_path);
 
-    gfr = gfc_create();
-    gfc_set_server(gfr, server);
-    gfc_set_path(gfr, req_path);
-    gfc_set_port(gfr, port);
-    gfc_set_writefunc(gfr, writecb);
-    gfc_set_writearg(gfr, file);
+    job_to_execute->gfr = gfc_create();
+    gfc_set_server(job_to_execute->gfr, server);
+    gfc_set_path(job_to_execute->gfr, req_path);
+    gfc_set_port(job_to_execute->gfr, port);
+    gfc_set_writefunc(job_to_execute->gfr, writecb);
+    gfc_set_writearg(job_to_execute->gfr, job_to_execute->file);
+
+	printf("handler_get: LOCK\n");
+	pthread_mutex_lock(&m);
+		steque_push(queue, job_to_execute);
+	pthread_mutex_unlock(&m);
+
+	printf("handler_get: UNLOCK\n");
+	pthread_cond_signal(&c_cons);
 
     fprintf(stdout, "Requesting %s%s\n", server, req_path);
-
-    if ( 0 > (returncode = gfc_perform(gfr))){
-      fprintf(stdout, "gfc_perform returned an error %d\n", returncode);
-      fclose(file);
-      if ( 0 > unlink(local_path))
-        fprintf(stderr, "unlink failed on %s\n", local_path);
-    }
-    else {
-        fclose(file);
-    }
-
-    if ( gfc_get_status(gfr) != GF_OK){
-      if ( 0 > unlink(local_path))
-        fprintf(stderr, "unlink failed on %s\n", local_path);
-    }
-
-    fprintf(stdout, "Status: %s\n", gfc_strstatus(gfc_get_status(gfr)));
-    fprintf(stdout, "Received %zu of %zu bytes\n", gfc_get_bytesreceived(gfr), gfc_get_filelen(gfr));
   }
 
   gfc_global_cleanup();
 
   return 0;
-}  
+}
+
+void client_worker(void *thread_id){
+	int id = *(int *)thread_id;
+	while (1){
+		printf("start  client_worker %d\n", id);
+		printf("client_worker %d: LOCK\n", id);
+		pthread_mutex_lock(&m);
+			//wait while steque_isempty
+			if (jobs_completed < tot_jobs){
+				while (steque_isempty(queue) != 0){
+					printf("client_worker %d: ENTERWAIT\n", id);
+					pthread_cond_wait(&c_cons, &m);
+					printf("client_worker %d: EXITWAIT\n", id);
+				}
+			}
+			else
+				break;
+			job *job_to_exec = (job *)steque_pop(queue);
+			jobs_completed++;
+			printf("local_path = %s\n", job_to_exec->local_path);
+		pthread_mutex_unlock(&m);
+		printf("client_worker %d: before gfc_perform\n", id);
+		int returncode = gfc_perform((gfcrequest_t *)job_to_exec->gfr);
+		printf("client_worker %d: after gfc_perform\n", id);
+		if ( returncode < 0){
+		  fprintf(stdout, "gfc_perform returned an error %d\n", returncode);
+		  fclose(job_to_exec->file);
+		  if ( 0 > unlink(job_to_exec->local_path))
+			fprintf(stderr, "unlink failed on %s\n", job_to_exec->local_path);
+		}
+		else {
+			fclose(job_to_exec->file);
+		}
+
+		if ( gfc_get_status(job_to_exec->gfr) != GF_OK){
+		  if ( 0 > unlink(job_to_exec->local_path))
+			fprintf(stderr, "unlink failed on %s\n", job_to_exec->local_path);
+		}
+
+		fprintf(stdout, "Status: %s\n", gfc_strstatus(gfc_get_status(job_to_exec->gfr)));
+		fprintf(stdout, "Received %zu of %zu bytes\n", gfc_get_bytesreceived(job_to_exec->gfr), gfc_get_filelen(job_to_exec->gfr));
+		pthread_mutex_lock(&m);
+
+		pthread_mutex_unlock(&m);
+	}
+}

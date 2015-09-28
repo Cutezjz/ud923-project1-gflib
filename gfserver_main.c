@@ -28,7 +28,6 @@ ssize_t handler_worker(void *thread_id);
 steque_t* queue;
 pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t c_cons = PTHREAD_COND_INITIALIZER;
-pthread_cond_t c_proc = PTHREAD_COND_INITIALIZER;
 
 
 /* Main ========================================================= */
