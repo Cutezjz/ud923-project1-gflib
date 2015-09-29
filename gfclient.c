@@ -190,7 +190,7 @@ int gfc_perform(gfcrequest_t *gfr){
 	sockfd = create_socket(gfr, &serv_addr);
 	if (sockfd < 0){
 		perror("hello\n");
-		return EXIT_FAILURE;
+		return -1;
 	}
 
 	printf("CLIENT: This is the request str sent: %s\n", request_str);
@@ -209,6 +209,11 @@ int gfc_perform(gfcrequest_t *gfr){
 			bytes_wrote = bytes_read;
 			init_bytes_read+=bytes_read;
 			p_file_data = buffer;
+			if (bytes_read < 0){
+				//error reading socket
+				perror("CLIENT: ERROR READING SOCKET\n");
+				return -1;
+			}
 			if (rnrn_flag == 1){
 				break;
 			}
@@ -251,10 +256,6 @@ int gfc_perform(gfcrequest_t *gfr){
     	if (bytes_read == 0){
     		break;
     	}
-    	//error reading
-    	else if (bytes_read < 0){
-    		perror("ERROR reading socket");
-    	}
     	else{
     		//first loop will contain header
     		//parse to find information
@@ -270,7 +271,6 @@ int gfc_perform(gfcrequest_t *gfr){
             	total_bytes_wrote+=bytes_wrote;
             	data_remaining-=bytes_wrote;
         		gfr->writefunc((void *)p_file_data, bytes_wrote, gfr->writearg);
-        		//gfr->file_size+=bytes_wrote;
     	}
     }
 

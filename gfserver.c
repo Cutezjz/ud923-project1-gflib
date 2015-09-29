@@ -34,7 +34,7 @@ typedef struct gfserver_t{
 
 typedef struct gfcontext_t{
 	int sockfd;
-	gfstatus_t status;
+	//gfstatus_t status;
 	char fpath[256];
 	char client_req_path[1000];
 }gfcontext_t;
@@ -215,10 +215,10 @@ int gfc_get_path(gfcontext_t *gfc){
 	//request must end with \r\n\r\n or space
 	ret_scanf = sscanf(gfc->client_req_path, "GETFILE GET %s\r\n\r\n", temp_pot_fpath);
 	if (ret_scanf == EOF)
-		ret_scanf = sscanf(gfc->client_req_path, "GETFILE GET %s ", temp_pot_fpath);
+		ret_scanf = sscanf(gfc->client_req_path, "GETFILE GET %s ", temp_pot_fpath); //see uf ebds with space
 
 	if (ret_scanf == EOF){
-		perror("PATH WAS PARSED but fpath not found\n");
+		printf("This was the malformed path '%s'\n", temp_pot_fpath);
 		gfc_create_path(gfc, "");
 		return -1;
 	}
