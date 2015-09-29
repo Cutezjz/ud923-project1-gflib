@@ -75,7 +75,8 @@ int main(int argc, char **argv) {
   queue = malloc(sizeof(steque_t));
   int *thread_id = malloc(sizeof(int) * nthreads);
   steque_init(queue);
-  //create nthreads threads
+
+  //allocate create nthreads threads
   pthread_t *thread_list = (pthread_t *)malloc(nthreads * sizeof(pthread_t));
   for (int ii =0; ii < nthreads; ii++){
 	  thread_id[ii] = ii;
